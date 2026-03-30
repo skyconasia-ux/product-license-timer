@@ -1,0 +1,5 @@
+{
+  "timer_interval_seconds": 300,
+  "timer_min_seconds": 300,
+  "timer_max_seconds": 432000
+}
