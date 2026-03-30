@@ -50,10 +50,12 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.addToolBar(self._build_toolbar())
-
+        # Table must be created before toolbar (toolbar connects to table signals)
         self._table = ProductTable()
         self._table.customContextMenuRequested.connect(self._show_context_menu)
+
+        self.addToolBar(self._build_toolbar())
+
         layout.addWidget(self._table)
 
         self._status_label = QLabel()
