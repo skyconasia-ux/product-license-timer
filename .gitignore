@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Build output
+build/
+dist/
+*.spec
+
+# Database (user data — not committed)
+data/
+
+# Config with credentials (user fills in)
+# config/ is committed as templates only
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+desktop.ini
