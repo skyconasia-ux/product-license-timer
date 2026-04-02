@@ -15,7 +15,7 @@ from services.contact_service import (
 )
 
 ROLES = ["Solutions Team", "Admin", "Support"]
-COLS = ["Name", "Email", "Role", "Active"]
+COLS = ["Name", "Email", "Role Type", "Active"]
 
 
 class _RecipientForm(QDialog):
