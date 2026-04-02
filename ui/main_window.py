@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
 from sqlalchemy.orm import Session
 
 from services.auth_service import UserSession
-from services.db_session import get_session
 from services.notification_service import check_and_send_v2, get_smtp_config
 from services.product_service import (
     add_product, update_product, delete_product,
@@ -380,7 +379,10 @@ class MainWindow(QMainWindow):
     # --------------------------------------------------------------- Extras
 
     def _export_csv(self) -> None:
-        products = get_all_products(self._session)
+        if self._show_my_products:
+            products = get_my_products(self._session, self._user)
+        else:
+            products = get_all_products(self._session)
         enriched = self._enrich_products(products)
         export_to_csv(enriched, self)
 
