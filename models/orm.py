@@ -79,7 +79,7 @@ class Product(Base):
     expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
     notes: Mapped[str] = mapped_column(String(1000), default="")
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True)
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     consultant_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("contacts.id"), nullable=True)
     account_manager_id: Mapped[int | None] = mapped_column(
