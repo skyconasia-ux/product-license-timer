@@ -1,0 +1,21 @@
+[Unit]
+Description=Product License Timer — Notification Daemon
+Documentation=https://github.com/skyconasia-ux/product-license-timer
+After=network.target
+
+[Service]
+Type=simple
+# --- Edit these paths to match your installation ---
+User=plicense
+WorkingDirectory=/opt/product-license-timer
+ExecStart=/opt/product-license-timer/.venv/bin/python -m service.notification_daemon
+EnvironmentFile=/opt/product-license-timer/.env
+Restart=on-failure
+RestartSec=30
+
+# Logging goes to journald — view with: journalctl -u product-license-timer -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

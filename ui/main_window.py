@@ -40,6 +40,7 @@ class MainWindow(QMainWindow):
         self._user = user_session
         self._session = db_session
         self._show_my_products = False
+        self.logout_requested = False
         self.setWindowTitle("Product License Timer")
         self.setMinimumSize(1200, 680)
 
@@ -135,6 +136,11 @@ class MainWindow(QMainWindow):
         settings_btn = QPushButton("⚙  Settings")
         settings_btn.clicked.connect(self._open_settings)
         layout.addWidget(settings_btn)
+
+        logout_btn = QPushButton("⏏  Logout")
+        logout_btn.setStyleSheet("color: #f87171;")
+        logout_btn.clicked.connect(self._logout)
+        layout.addWidget(logout_btn)
 
         user_label = QLabel(self._user.email)
         user_label.setStyleSheet(
@@ -269,7 +275,18 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def _logout(self) -> None:
+        """Log out current user and return to login screen."""
+        self.logout_requested = True
+        self._timer.stop()
+        self._tray.hide()
+        self._session.close()
+        self.hide()
+        from PyQt6.QtWidgets import QApplication
+        QApplication.quit()
+
     def _quit_app(self) -> None:
+        self.logout_requested = False
         self._timer.stop()
         self._tray.hide()
         self._session.close()

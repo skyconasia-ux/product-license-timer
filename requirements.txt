@@ -4,3 +4,5 @@ pyodbc>=5.0
 bcrypt>=4.0
 python-dotenv>=1.0
 pytest>=8.0
+# Windows Service support (Windows only — install manually on Windows hosts):
+# pywin32>=306
