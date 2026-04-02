@@ -50,10 +50,12 @@ def _save(path: Path, data: dict) -> None:
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, caller=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumWidth(500)
+        self._caller = caller
+        self._has_smtp_tab = (caller is None or caller.role in ("admin", "superadmin"))
         self._app_cfg = _load(APP_CONFIG_PATH, _APP_DEFAULTS)
         self._email_cfg = _load(EMAIL_CONFIG_PATH, _EMAIL_DEFAULTS)
         self._build_ui()
@@ -62,7 +64,8 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_timer_tab(), "Timer")
-        self._tabs.addTab(self._build_email_tab(), "Email / SMTP")
+        if self._has_smtp_tab:
+            self._tabs.addTab(self._build_email_tab(), "Email / SMTP")
         self._tabs.addTab(self._build_system_tab(), "System")
 
         buttons = QDialogButtonBox(
@@ -238,7 +241,8 @@ class SettingsDialog(QDialog):
             "timer_min_seconds": min_v,
             "timer_max_seconds": max_v,
         })
-        self._persist_smtp()
+        if self._has_smtp_tab:
+            self._persist_smtp()
 
     def _on_save(self) -> None:
         min_v = self.min_spin.value()

@@ -154,17 +154,41 @@ class UsersPage(QWidget):
                             email=data["email"],
                             password=data["password"],
                             role=data["role"])
-                # Auto-verify if SMTP not configured so user can login immediately
                 from models.orm import User
+                from services.auth_service import create_verification_token
+                from services.notification_service import _send_smtp, get_smtp_config
                 u = self._session.query(User).filter_by(email=data["email"]).first()
-                if u and not u.is_verified:
-                    u.is_verified = True
-                    self._session.commit()
-                    QMessageBox.information(
-                        self, "User Created",
-                        f"{data['email']} created and verified.\n"
-                        f"They can log in with the password you set."
-                    )
+                if u:
+                    token = create_verification_token(self._session, u.id)
+                    cfg = get_smtp_config()
+                    if cfg.get("smtp_host") and cfg.get("smtp_user"):
+                        _send_smtp(
+                            subject="Verify your Product License Timer account",
+                            body=(
+                                f"Hello,\n\n"
+                                f"Your account ({data['email']}) has been created.\n\n"
+                                f"Your verification token is:\n\n"
+                                f"    {token}\n\n"
+                                f"Enter this token in the app using 'Verify Account' "
+                                f"on the login screen.\n"
+                                f"This token expires in 24 hours.\n"
+                            ),
+                            recipients=[data["email"]],
+                            cfg=cfg,
+                        )
+                        QMessageBox.information(
+                            self, "User Created",
+                            f"{data['email']} created.\n"
+                            f"A verification email has been sent."
+                        )
+                    else:
+                        QMessageBox.information(
+                            self, "User Created",
+                            f"{data['email']} created.\n\n"
+                            f"SMTP not configured — verification token:\n\n"
+                            f"{token}\n\n"
+                            f"Share this with the user, or use 'Verify' to manually verify."
+                        )
                 self.refresh()
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))

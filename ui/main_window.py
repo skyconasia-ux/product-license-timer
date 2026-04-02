@@ -422,7 +422,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Backup Complete", f"Saved to:\n{path}")
 
     def _open_settings(self) -> None:
-        dlg = SettingsDialog(self)
+        dlg = SettingsDialog(self, caller=self._user)
         if dlg.exec():
             cfg = dlg.get_app_config()
             self._timer.set_interval(cfg["timer_interval_seconds"])

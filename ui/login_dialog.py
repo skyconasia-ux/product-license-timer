@@ -4,10 +4,58 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QMessageBox, QFrame,
+    QDialogButtonBox,
 )
 from sqlalchemy.orm import Session
 from services.auth_service import UserSession, login, is_default_password
 from services.db_session import get_session
+
+
+class _VerifyAccountDialog(QDialog):
+    """Token entry dialog for email verification."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Verify Account")
+        self.setFixedWidth(400)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.addWidget(QLabel(
+            "Enter the verification token from your email.\n"
+            "If SMTP was not configured, ask your admin for the token."
+        ))
+        self._token = QLineEdit()
+        self._token.setPlaceholderText("Paste token here")
+        layout.addWidget(self._token)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._verify)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _verify(self) -> None:
+        from services.auth_service import verify_email_token
+        token = self._token.text().strip()
+        if not token:
+            QMessageBox.warning(self, "Error", "Please enter a token.")
+            return
+        session = get_session()
+        try:
+            ok = verify_email_token(session, token)
+        finally:
+            session.close()
+        if ok:
+            QMessageBox.information(
+                self, "Verified",
+                "Account verified! You can now log in."
+            )
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Invalid Token",
+                                "Token is invalid or has expired.")
 
 
 class ChangePasswordDialog(QDialog):
@@ -119,10 +167,24 @@ class LoginDialog(QDialog):
         """)
         sign_in_btn.clicked.connect(self._attempt_login)
 
-        for w in [title, subtitle, self._email, self._password, self._error_label, sign_in_btn]:
+        verify_btn = QPushButton("Verify Account")
+        verify_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #3b82f6;
+                border: none; padding: 4px;
+            }
+            QPushButton:hover { color: #2563eb; text-decoration: underline; }
+        """)
+        verify_btn.clicked.connect(self._open_verify)
+
+        for w in [title, subtitle, self._email, self._password,
+                  self._error_label, sign_in_btn, verify_btn]:
             layout.addWidget(w)
 
         outer.addWidget(card)
+
+    def _open_verify(self) -> None:
+        _VerifyAccountDialog(self).exec()
 
     def _attempt_login(self) -> None:
         email = self._email.text().strip()
