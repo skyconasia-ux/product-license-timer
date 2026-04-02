@@ -187,11 +187,8 @@ def check_and_send_v2(products: list, session, smtp_cfg: dict) -> None:
     New notification check using ORM products and DB recipients.
     Drop-in replacement for check_and_send once fully migrated.
     """
-    from datetime import date
-    from utils.date_utils import days_remaining
     from services.product_service import notification_sent, log_notification
 
-    THRESHOLDS = [15, 10, 5]
     for product in products:
         days_left = days_remaining(product.expiry_date)
         if days_left < 0:
@@ -211,11 +208,6 @@ def check_and_send_v2(products: list, session, smtp_cfg: dict) -> None:
 
 def _send_smtp(subject: str, body: str, recipients: list[str], cfg: dict) -> bool:
     """Send email via SMTP. Returns True on success."""
-    import smtplib
-    import threading
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
     if not cfg.get("smtp_user") or not recipients:
         return False
 
