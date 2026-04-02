@@ -20,21 +20,29 @@ def _get(p, key, default=""):
     return getattr(p, key, default)
 
 
+def _parse_date(val) -> date | None:
+    """Coerce a date object or ISO string to a date. Returns None on failure."""
+    if val is None:
+        return None
+    if isinstance(val, date):
+        return val
+    try:
+        return date.fromisoformat(str(val))
+    except Exception:
+        return None
+
+
 def _fmt_date(val) -> str:
     """Format date as DD-MM-YYYY from date object, isoformat string, or None."""
-    if val is None:
-        return ""
-    if hasattr(val, "strftime"):
-        return val.strftime("%d-%m-%Y")
-    from datetime import date as _d
-    try:
-        return _d.fromisoformat(str(val)).strftime("%d-%m-%Y")
-    except Exception:
-        return str(val)
+    d = _parse_date(val)
+    return d.strftime("%d-%m-%Y") if d else ""
 
 
 def _assigned_to(p) -> str:
-    """Build compact pill string for Assigned To column."""
+    """Build compact pill string for Assigned To column.
+    TODO (Phase 3 styling): apply per-role foreground colours via a custom delegate
+    (C: blue, AM: green, PM: purple) instead of plain text.
+    """
     parts = []
     cn = _get(p, "consultant_name")
     am = _get(p, "account_manager_name")
@@ -113,12 +121,9 @@ class ProductTable(QTableWidget):
         self.setRowCount(len(products))
 
         for row, p in enumerate(products):
-            expiry_raw = _get(p, "expiry_date")
-            if hasattr(expiry_raw, "strftime"):
-                expiry = expiry_raw
-            else:
-                from datetime import date as _d
-                expiry = _d.fromisoformat(str(expiry_raw))
+            expiry = _parse_date(_get(p, "expiry_date"))
+            if expiry is None:
+                continue  # skip rows with invalid expiry data
             days_left = days_remaining(expiry)
             secs = remaining_seconds(expiry)
             countdown, is_expired = format_countdown(secs)
