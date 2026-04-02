@@ -10,9 +10,13 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QTabWidget, QWidget,
     QFormLayout, QSpinBox, QLineEdit, QCheckBox,
-    QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QMessageBox,
 )
+from dotenv import load_dotenv, set_key
+
+ENV_PATH = Path(__file__).parent.parent / ".env"
+load_dotenv(ENV_PATH)
 
 APP_CONFIG_PATH = Path(__file__).parent.parent / "config" / "app_config.json"
 EMAIL_CONFIG_PATH = Path(__file__).parent.parent / "config" / "email_config.json"
@@ -27,8 +31,8 @@ _EMAIL_DEFAULTS = {
     "smtp_port": 587,
     "smtp_user": "",
     "smtp_password": "",
+    "smtp_tls": True,
     "sender_name": "License Tracker",
-    "recipients": [],
 }
 
 
@@ -99,17 +103,17 @@ class SettingsDialog(QDialog):
 
     # ----------------------------------------------------------------- Email tab
     def _build_email_tab(self) -> QWidget:
+        import os
         w = QWidget()
         form = QFormLayout(w)
 
-        self.smtp_host = QLineEdit(self._email_cfg.get("smtp_host", ""))
+        self.smtp_host = QLineEdit(os.getenv("SMTP_HOST", "smtp.gmail.com"))
         self.smtp_port = QSpinBox()
         self.smtp_port.setRange(1, 65535)
-        self.smtp_port.setValue(int(self._email_cfg.get("smtp_port", 587)))
-        self.smtp_user = QLineEdit(self._email_cfg.get("smtp_user", ""))
-        self.smtp_pass = QLineEdit(self._email_cfg.get("smtp_password", ""))
+        self.smtp_port.setValue(int(os.getenv("SMTP_PORT", "587")))
+        self.smtp_user = QLineEdit(os.getenv("SMTP_USER", ""))
+        self.smtp_pass = QLineEdit(os.getenv("SMTP_PASSWORD", ""))
         self.smtp_pass.setEchoMode(QLineEdit.EchoMode.Password)
-
         show_btn = QPushButton("Show")
         show_btn.setCheckable(True)
         show_btn.toggled.connect(
@@ -121,23 +125,9 @@ class SettingsDialog(QDialog):
         pass_row.addWidget(self.smtp_pass)
         pass_row.addWidget(show_btn)
 
-        self.sender_name = QLineEdit(self._email_cfg.get("sender_name", "License Tracker"))
-
-        self.recipient_list = QListWidget()
-        self.recipient_list.setMaximumHeight(100)
-        for r in self._email_cfg.get("recipients", []):
-            self.recipient_list.addItem(r)
-
-        self.new_recipient = QLineEdit()
-        self.new_recipient.setPlaceholderText("admin@company.com")
-        add_btn = QPushButton("Add")
-        add_btn.clicked.connect(self._add_recipient)
-        remove_btn = QPushButton("Remove")
-        remove_btn.clicked.connect(self._remove_recipient)
-        add_row = QHBoxLayout()
-        add_row.addWidget(self.new_recipient)
-        add_row.addWidget(add_btn)
-        add_row.addWidget(remove_btn)
+        self.smtp_tls = QCheckBox("Use TLS")
+        self.smtp_tls.setChecked(os.getenv("SMTP_TLS", "true").lower() == "true")
+        self.sender_name = QLineEdit(os.getenv("SENDER_NAME", "License Tracker"))
 
         test_btn = QPushButton("Test Connection")
         test_btn.clicked.connect(self._test_connection)
@@ -146,21 +136,11 @@ class SettingsDialog(QDialog):
         form.addRow("SMTP Port", self.smtp_port)
         form.addRow("Username", self.smtp_user)
         form.addRow("Password", pass_row)
+        form.addRow("", self.smtp_tls)
         form.addRow("Sender Name", self.sender_name)
-        form.addRow("Recipients", self.recipient_list)
-        form.addRow("Add Recipient", add_row)
+        form.addRow(QLabel("Recipients are managed in the System Recipients page."))
         form.addRow("", test_btn)
         return w
-
-    def _add_recipient(self) -> None:
-        email = self.new_recipient.text().strip()
-        if email and "@" in email:
-            self.recipient_list.addItem(email)
-            self.new_recipient.clear()
-
-    def _remove_recipient(self) -> None:
-        for item in self.recipient_list.selectedItems():
-            self.recipient_list.takeItem(self.recipient_list.row(item))
 
     def _test_connection(self) -> None:
         self._persist()  # save current values before testing
@@ -214,8 +194,21 @@ class SettingsDialog(QDialog):
         winreg.CloseKey(key)
 
     # ----------------------------------------------------------------- Save
+    def _persist_smtp(self) -> None:
+        pairs = [
+            ("SMTP_HOST", self.smtp_host.text().strip()),
+            ("SMTP_PORT", str(self.smtp_port.value())),
+            ("SMTP_USER", self.smtp_user.text().strip()),
+            ("SMTP_PASSWORD", self.smtp_pass.text()),
+            ("SMTP_TLS", "true" if self.smtp_tls.isChecked() else "false"),
+            ("SENDER_NAME", self.sender_name.text().strip()),
+        ]
+        ENV_PATH.touch()
+        for key, val in pairs:
+            set_key(str(ENV_PATH), key, val)
+
     def _persist(self) -> None:
-        """Write current field values to config files."""
+        """Write current field values to config files and .env."""
         min_v = self.min_spin.value()
         max_v = self.max_spin.value()
         interval = max(min_v, min(max_v, self.interval_spin.value()))
@@ -225,17 +218,7 @@ class SettingsDialog(QDialog):
             "timer_min_seconds": min_v,
             "timer_max_seconds": max_v,
         })
-        _save(EMAIL_CONFIG_PATH, {
-            "smtp_host": self.smtp_host.text().strip(),
-            "smtp_port": self.smtp_port.value(),
-            "smtp_user": self.smtp_user.text().strip(),
-            "smtp_password": self.smtp_pass.text(),
-            "sender_name": self.sender_name.text().strip(),
-            "recipients": [
-                self.recipient_list.item(i).text()
-                for i in range(self.recipient_list.count())
-            ],
-        })
+        self._persist_smtp()
 
     def _on_save(self) -> None:
         min_v = self.min_spin.value()
