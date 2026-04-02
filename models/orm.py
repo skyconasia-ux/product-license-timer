@@ -81,11 +81,11 @@ class Product(Base):
     created_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     consultant_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("contacts.id"), nullable=True)
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
     account_manager_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("contacts.id"), nullable=True)
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
     project_manager_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("contacts.id"), nullable=True)
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
 
 
 class NotificationLog(Base):

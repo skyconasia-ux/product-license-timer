@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 def session():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    S = sessionmaker(bind=engine)
+    S = sessionmaker(engine)
     s = S()
     yield s
     s.close()
