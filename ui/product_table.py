@@ -12,22 +12,59 @@ from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
 
 from utils.date_utils import days_remaining, format_countdown, get_row_color, remaining_seconds
 
+
+def _get(p, key, default=""):
+    """Get value from ORM object or dict."""
+    if isinstance(p, dict):
+        return p.get(key, default)
+    return getattr(p, key, default)
+
+
+def _fmt_date(val) -> str:
+    """Format date as DD-MM-YYYY from date object, isoformat string, or None."""
+    if val is None:
+        return ""
+    if hasattr(val, "strftime"):
+        return val.strftime("%d-%m-%Y")
+    from datetime import date as _d
+    try:
+        return _d.fromisoformat(str(val)).strftime("%d-%m-%Y")
+    except Exception:
+        return str(val)
+
+
+def _assigned_to(p) -> str:
+    """Build compact pill string for Assigned To column."""
+    parts = []
+    cn = _get(p, "consultant_name")
+    am = _get(p, "account_manager_name")
+    pm = _get(p, "project_manager_name")
+    if cn:
+        parts.append(f"C: {cn}")
+    if am:
+        parts.append(f"AM: {am}")
+    if pm:
+        parts.append(f"PM: {pm}")
+    return "  ".join(parts) if parts else "—"
+
+
 # Column index constants
-COL_ID        = 0
-COL_NAME      = 1
-COL_CUSTOMER  = 2
-COL_ORDER     = 3
-COL_START     = 4
-COL_DURATION  = 5
-COL_EXPIRY    = 6
-COL_DAYS      = 7
-COL_REMAINING = 8
-COL_STATUS    = 9
+COL_ID          = 0
+COL_NAME        = 1
+COL_CUSTOMER    = 2
+COL_ORDER       = 3
+COL_START       = 4
+COL_DURATION    = 5
+COL_EXPIRY      = 6
+COL_DAYS        = 7
+COL_REMAINING   = 8
+COL_STATUS      = 9
+COL_ASSIGNED    = 10
 
 COLUMNS = [
     "ID", "Product Name", "Customer", "Order #",
     "Start Date", "Duration", "Expiry Date",
-    "Days Left", "Remaining Time", "Status",
+    "Days Left", "Remaining Time", "Status", "Assigned To",
 ]
 
 
@@ -46,11 +83,12 @@ class ProductTable(QTableWidget):
         header = self.horizontalHeader()
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_REMAINING, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(COL_ASSIGNED, QHeaderView.ResizeMode.ResizeToContents)
         self.setSortingEnabled(True)
-        self._all_products: List[dict] = []
+        self._all_products: list = []
         self._filter_text: str = ""
 
-    def refresh(self, products: List[dict]) -> None:
+    def refresh(self, products: list) -> None:
         """Reload all rows from the given product list."""
         self._all_products = products
         self._render(self._filtered(products))
@@ -60,22 +98,27 @@ class ProductTable(QTableWidget):
         self._filter_text = text.lower().strip()
         self._render(self._filtered(self._all_products))
 
-    def _filtered(self, products: List[dict]) -> List[dict]:
+    def _filtered(self, products: list) -> list:
         if not self._filter_text:
             return products
         return [
             p for p in products
-            if self._filter_text in p.get("name", "").lower()
-            or self._filter_text in p.get("customer_name", "").lower()
-            or self._filter_text in p.get("order_number", "").lower()
+            if self._filter_text in str(_get(p, "product_name") or _get(p, "name")).lower()
+            or self._filter_text in str(_get(p, "customer_name")).lower()
+            or self._filter_text in str(_get(p, "order_number")).lower()
         ]
 
-    def _render(self, products: List[dict]) -> None:
+    def _render(self, products: list) -> None:
         self.setSortingEnabled(False)
         self.setRowCount(len(products))
 
         for row, p in enumerate(products):
-            expiry = date.fromisoformat(p["expiry_date"])
+            expiry_raw = _get(p, "expiry_date")
+            if hasattr(expiry_raw, "strftime"):
+                expiry = expiry_raw
+            else:
+                from datetime import date as _d
+                expiry = _d.fromisoformat(str(expiry_raw))
             days_left = days_remaining(expiry)
             secs = remaining_seconds(expiry)
             countdown, is_expired = format_countdown(secs)
@@ -94,16 +137,17 @@ class ProductTable(QTableWidget):
             color = get_row_color(days_left)
 
             values = [
-                str(p["id"]),
-                p.get("name", ""),
-                p.get("customer_name", ""),
-                p.get("order_number", ""),
-                p.get("start_date", ""),
-                f"{p.get('duration_days', '')} days",
-                p.get("expiry_date", ""),
+                str(_get(p, "id")),
+                str(_get(p, "product_name") or _get(p, "name")),
+                str(_get(p, "customer_name")),
+                str(_get(p, "order_number")),
+                _fmt_date(_get(p, "start_date")),
+                f"{_get(p, 'duration_days')} days",
+                _fmt_date(_get(p, "expiry_date")),
                 str(days_left),
                 countdown,
                 status,
+                _assigned_to(p),
             ]
 
             for col, val in enumerate(values):
