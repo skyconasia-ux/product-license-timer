@@ -161,8 +161,9 @@ class UsersPage(QWidget):
                 if u:
                     token = create_verification_token(self._session, u.id)
                     cfg = get_smtp_config()
+                    sent = False
                     if cfg.get("smtp_host") and cfg.get("smtp_user"):
-                        _send_smtp(
+                        sent = _send_smtp(
                             subject="Verify your Product License Timer account",
                             body=(
                                 f"Hello,\n\n"
@@ -176,6 +177,7 @@ class UsersPage(QWidget):
                             recipients=[data["email"]],
                             cfg=cfg,
                         )
+                    if sent:
                         QMessageBox.information(
                             self, "User Created",
                             f"{data['email']} created.\n"
@@ -185,7 +187,7 @@ class UsersPage(QWidget):
                         QMessageBox.information(
                             self, "User Created",
                             f"{data['email']} created.\n\n"
-                            f"SMTP not configured — verification token:\n\n"
+                            f"Email could not be sent — verification token:\n\n"
                             f"{token}\n\n"
                             f"Share this with the user, or use 'Verify' to manually verify."
                         )
