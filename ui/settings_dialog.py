@@ -143,13 +143,33 @@ class SettingsDialog(QDialog):
         return w
 
     def _test_connection(self) -> None:
-        self._persist()  # save current values before testing
-        from services.notification_service import NotificationService
-        ok, msg = NotificationService().test_connection()
-        if ok:
-            QMessageBox.information(self, "Test Connection", msg)
+        self._persist()  # save current values to .env first
+        cfg = {
+            "smtp_host": self.smtp_host.text().strip(),
+            "smtp_port": self.smtp_port.value(),
+            "smtp_user": self.smtp_user.text().strip(),
+            "smtp_password": self.smtp_pass.text(),
+            "smtp_tls": self.smtp_tls.isChecked(),
+            "sender_name": self.sender_name.text().strip(),
+        }
+        if not cfg["smtp_host"]:
+            QMessageBox.warning(self, "Test Connection Failed", "SMTP Host is not configured.")
+            return
+        if not cfg["smtp_user"]:
+            QMessageBox.warning(self, "Test Connection Failed", "SMTP Username is not configured.")
+            return
+        from services.notification_service import _send_smtp
+        sent = _send_smtp(
+            subject="Test — Product License Timer",
+            body="SMTP connection test from Product License Timer.",
+            recipients=[cfg["smtp_user"]],
+            cfg=cfg,
+        )
+        if sent:
+            QMessageBox.information(self, "Test Connection", f"Test email sent to {cfg['smtp_user']}.")
         else:
-            QMessageBox.warning(self, "Test Connection Failed", msg)
+            QMessageBox.warning(self, "Test Connection Failed",
+                                "Could not send email. Check SMTP settings and server logs.")
 
     # ----------------------------------------------------------------- System tab
     def _build_system_tab(self) -> QWidget:

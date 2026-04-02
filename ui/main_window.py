@@ -74,10 +74,13 @@ class MainWindow(QMainWindow):
         if self._user.role in ("admin", "superadmin"):
             from ui.contacts_page import ContactsPage
             from ui.recipients_page import RecipientsPage
+            from ui.users_page import UsersPage
             self._contacts_widget = ContactsPage(self._session, self._user)
             self._recipients_widget = RecipientsPage(self._session, self._user)
+            self._users_widget = UsersPage(self._session, self._user)
             self._stack.addWidget(self._contacts_widget)   # index 1
             self._stack.addWidget(self._recipients_widget) # index 2
+            self._stack.addWidget(self._users_widget)      # index 3
 
         self._stack.setCurrentIndex(0)
         v_layout.addWidget(self._stack)
@@ -117,14 +120,18 @@ class MainWindow(QMainWindow):
 
         self._nav_contacts = None
         self._nav_recipients = None
+        self._nav_users = None
 
         if self._user.role in ("admin", "superadmin"):
             self._nav_contacts = QPushButton("👤  Contacts")
             self._nav_contacts.clicked.connect(lambda: self._nav_to(1, self._nav_contacts))
             self._nav_recipients = QPushButton("📧  Recipients")
             self._nav_recipients.clicked.connect(lambda: self._nav_to(2, self._nav_recipients))
+            self._nav_users = QPushButton("👥  Users")
+            self._nav_users.clicked.connect(lambda: self._nav_to(3, self._nav_users))
             layout.addWidget(self._nav_contacts)
             layout.addWidget(self._nav_recipients)
+            layout.addWidget(self._nav_users)
 
         layout.addStretch()
 
@@ -153,7 +160,7 @@ class MainWindow(QMainWindow):
 
     def _nav_to(self, index: int, btn: QPushButton) -> None:
         self._stack.setCurrentIndex(index)
-        for b in [self._nav_products, self._nav_contacts, self._nav_recipients]:
+        for b in [self._nav_products, self._nav_contacts, self._nav_recipients, self._nav_users]:
             if b:
                 b.setProperty("active", "false")
                 b.style().unpolish(b)
