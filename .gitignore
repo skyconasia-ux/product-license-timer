@@ -26,3 +26,6 @@ data/
 Thumbs.db
 desktop.ini
 .worktrees/
+
+# Migration secrets (generated at runtime — never commit)
+migrations/.recovery_code
