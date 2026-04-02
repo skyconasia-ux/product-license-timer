@@ -1,22 +1,29 @@
 """
-Entry point. Handles --minimized flag for Windows auto-start via registry.
+Entry point. Shows login dialog before main window.
 """
 import sys
 from pathlib import Path
 
-# Ensure project root is importable when launched via pythonw.exe
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PyQt6.QtWidgets import QApplication
-from ui.main_window import MainWindow
+from PyQt6.QtWidgets import QApplication, QDialog
+from ui.login_dialog import LoginDialog
 
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Product License Timer")
-    app.setQuitOnLastWindowClosed(False)  # Allow tray-only mode
+    app.setQuitOnLastWindowClosed(False)
 
-    window = MainWindow()
+    login_dlg = LoginDialog()
+    if login_dlg.exec() != QDialog.DialogCode.Accepted:
+        sys.exit(0)
+
+    user_session = login_dlg.get_user_session()
+    db_session = login_dlg.get_db_session()
+
+    from ui.main_window import MainWindow
+    window = MainWindow(user_session=user_session, db_session=db_session)
 
     if "--minimized" not in sys.argv:
         window.show()
