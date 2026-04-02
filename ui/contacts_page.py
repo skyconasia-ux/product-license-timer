@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox, QMessageBox, QToolBar,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction
 from sqlalchemy.orm import Session
 from services.auth_service import UserSession
 from services.contact_service import (
@@ -28,7 +29,10 @@ class _ContactForm(QDialog):
         self._role = QComboBox()
         self._role.addItems(ROLES)
         if contact:
-            idx = ROLES.index(contact.role_type.value)
+            try:
+                idx = ROLES.index(contact.role_type.value)
+            except ValueError:
+                idx = 0
             self._role.setCurrentIndex(idx)
         form.addRow("Name", self._name)
         form.addRow("Email", self._email)
@@ -72,7 +76,6 @@ class ContactsPage(QWidget):
         tb = QToolBar()
         tb.setMovable(False)
         for label, slot in [("+ Add", self._add), ("✏ Edit", self._edit), ("🗑 Delete", self._delete)]:
-            from PyQt6.QtGui import QAction
             a = QAction(label, self)
             a.triggered.connect(slot)
             tb.addAction(a)
