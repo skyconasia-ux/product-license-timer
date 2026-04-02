@@ -1,7 +1,7 @@
 """Add/Edit product dialog with ownership dropdowns and DD-MM-YYYY dates."""
 from __future__ import annotations
 from datetime import date, timedelta
-from PyQt6.QtCore import Qt, QDate
+from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox,
     QDateEdit, QTextEdit, QDialogButtonBox, QLabel, QFrame,
