@@ -161,18 +161,27 @@ class SettingsDialog(QDialog):
         if not cfg["smtp_user"]:
             QMessageBox.warning(self, "Test Connection Failed", "SMTP Username is not configured.")
             return
-        from services.notification_service import _send_smtp
-        sent = _send_smtp(
-            subject="Test — Product License Timer",
-            body="SMTP connection test from Product License Timer.",
-            recipients=[cfg["smtp_user"]],
-            cfg=cfg,
-        )
-        if sent:
-            QMessageBox.information(self, "Test Connection", f"Test email sent to {cfg['smtp_user']}.")
-        else:
+        error_holder = [None]
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        try:
+            msg = MIMEMultipart()
+            msg["Subject"] = "Test — Product License Timer"
+            msg["From"] = f"{cfg.get('sender_name', 'License Tracker')} <{cfg['smtp_user']}>"
+            msg["To"] = cfg["smtp_user"]
+            msg.attach(MIMEText("SMTP connection test from Product License Timer.", "plain"))
+            with smtplib.SMTP(cfg["smtp_host"], int(cfg.get("smtp_port", 587)), timeout=15) as server:
+                if cfg["smtp_tls"]:
+                    server.starttls()
+                server.login(cfg["smtp_user"], cfg["smtp_password"])
+                server.sendmail(cfg["smtp_user"], [cfg["smtp_user"]], msg.as_string())
+            QMessageBox.information(self, "Test Connection",
+                                    f"Test email sent to {cfg['smtp_user']}.")
+        except Exception as e:
             QMessageBox.warning(self, "Test Connection Failed",
-                                "Could not send email. Check SMTP settings and server logs.")
+                                f"Could not send email:\n\n{e}")
 
     # ----------------------------------------------------------------- System tab
     def _build_system_tab(self) -> QWidget:
