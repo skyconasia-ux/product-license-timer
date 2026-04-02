@@ -1,119 +1,171 @@
-"""
-Modal QDialog for adding or editing a product.
-Single responsibility: collect and validate product input fields.
-"""
+"""Add/Edit product dialog with ownership dropdowns and DD-MM-YYYY dates."""
 from __future__ import annotations
-from datetime import date
-from typing import Optional
-
-from PyQt6.QtCore import QDate
+from datetime import date, timedelta
+from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QLabel,
-    QLineEdit, QSpinBox, QDateEdit, QTextEdit, QVBoxLayout,
-    QMessageBox,
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox,
+    QDateEdit, QTextEdit, QDialogButtonBox, QLabel, QFrame,
+    QComboBox, QMessageBox,
 )
+from sqlalchemy.orm import Session
+from services.auth_service import UserSession
+from services.contact_service import list_contacts_by_role
 
-from utils.date_utils import calculate_expiry_date
+UNASSIGNED = "— Unassigned —"
+DATE_FORMAT = "dd-MM-yyyy"
+
+
+def _date_to_qdate(d: date) -> QDate:
+    return QDate(d.year, d.month, d.day)
+
+
+def _qdate_to_date(q: QDate) -> date:
+    return date(q.year(), q.month(), q.day())
 
 
 class ProductForm(QDialog):
-    def __init__(self, parent=None, product: Optional[dict] = None):
-        """
-        Pass product=None for Add mode.
-        Pass a product dict (from DatabaseService.get_product) for Edit mode.
-        """
+    def __init__(
+        self,
+        parent=None,
+        product=None,
+        session: Session | None = None,
+        caller: UserSession | None = None,
+    ):
         super().__init__(parent)
+        self.setWindowTitle("Add Product" if product is None else "Edit Product")
+        self.setMinimumWidth(440)
         self._product = product
-        self.setWindowTitle("Edit Product" if product else "Add Product")
-        self.setMinimumWidth(420)
-        self._build_ui()
+        self._session = session
+        self._caller = caller
+        self._build()
         if product:
             self._populate(product)
 
-    def _build_ui(self) -> None:
+    def _build(self) -> None:
         layout = QVBoxLayout(self)
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
 
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("e.g. Equitrac 6")
+        # Core fields
+        self._name = QLineEdit()
+        self._customer = QLineEdit()
+        self._order = QLineEdit()
 
-        self.customer_input = QLineEdit()
-        self.customer_input.setPlaceholderText("Customer or company name")
+        self._start_date = QDateEdit()
+        self._start_date.setCalendarPopup(True)
+        self._start_date.setDisplayFormat(DATE_FORMAT)
+        self._start_date.setDate(QDate.currentDate())
+        self._start_date.dateChanged.connect(self._update_expiry_preview)
 
-        self.order_input = QLineEdit()
-        self.order_input.setPlaceholderText("e.g. ORD-2026-001")
+        self._duration = QSpinBox()
+        self._duration.setRange(1, 3650)
+        self._duration.setValue(90)
+        self._duration.valueChanged.connect(self._update_expiry_preview)
 
-        self.start_date_input = QDateEdit(calendarPopup=True)
-        self.start_date_input.setDate(QDate.currentDate())
-        self.start_date_input.setDisplayFormat("yyyy-MM-dd")
+        self._expiry_preview = QLabel()
+        self._expiry_preview.setStyleSheet("color: #64748b;")
+        self._update_expiry_preview()
 
-        self.duration_input = QSpinBox()
-        self.duration_input.setRange(1, 3650)
-        self.duration_input.setValue(30)
-        self.duration_input.setSuffix(" days")
+        self._notes = QTextEdit()
+        self._notes.setMaximumHeight(64)
 
-        self.expiry_preview = QLabel()
-        self.expiry_preview.setStyleSheet("color: #666; font-style: italic;")
+        form.addRow("Product Name *", self._name)
+        form.addRow("Customer Name", self._customer)
+        form.addRow("Order Number", self._order)
+        form.addRow("Start Date", self._start_date)
+        form.addRow("Duration (days)", self._duration)
+        form.addRow("Expiry Date", self._expiry_preview)
+        form.addRow("Notes", self._notes)
+        layout.addLayout(form)
 
-        self.notes_input = QTextEdit()
-        self.notes_input.setMaximumHeight(70)
-        self.notes_input.setPlaceholderText("Optional notes...")
+        # Ownership section
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setStyleSheet("color: #e2e8f0;")
+        layout.addWidget(divider)
 
-        form.addRow("Product Name *", self.name_input)
-        form.addRow("Customer Name", self.customer_input)
-        form.addRow("Order Number", self.order_input)
-        form.addRow("Start Date", self.start_date_input)
-        form.addRow("Duration", self.duration_input)
-        form.addRow("Expiry Date (preview)", self.expiry_preview)
-        form.addRow("Notes", self.notes_input)
+        ownership_label = QLabel("OWNERSHIP (OPTIONAL)")
+        ownership_label.setStyleSheet(
+            "font-size: 10px; font-weight: bold; color: #64748b; letter-spacing: 1px;"
+        )
+        layout.addWidget(ownership_label)
+
+        own_form = QFormLayout()
+        self._consultant = self._make_contact_combo("Consultant")
+        self._account_manager = self._make_contact_combo("Account Manager")
+        self._project_manager = self._make_contact_combo("Project Manager")
+        own_form.addRow("Consultant", self._consultant)
+        own_form.addRow("Account Manager", self._account_manager)
+        own_form.addRow("Project Manager", self._project_manager)
+        layout.addLayout(own_form)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
             QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self._on_save)
+        buttons.accepted.connect(self._validate)
         buttons.rejected.connect(self.reject)
-
-        layout.addLayout(form)
         layout.addWidget(buttons)
 
-        # Live expiry preview
-        self.start_date_input.dateChanged.connect(self._update_expiry_preview)
-        self.duration_input.valueChanged.connect(self._update_expiry_preview)
-        self._update_expiry_preview()
+    def _make_contact_combo(self, role: str) -> QComboBox:
+        combo = QComboBox()
+        combo.addItem(UNASSIGNED, userData=None)
+        if self._session:
+            for c in list_contacts_by_role(self._session, role):
+                combo.addItem(c.name, userData=c.id)
+        return combo
 
     def _update_expiry_preview(self) -> None:
-        qd = self.start_date_input.date()
-        start = date(qd.year(), qd.month(), qd.day())
-        expiry = calculate_expiry_date(start, self.duration_input.value())
-        self.expiry_preview.setText(expiry.isoformat())
+        start = _qdate_to_date(self._start_date.date())
+        days = self._duration.value()
+        expiry = start + timedelta(days=days)
+        self._expiry_preview.setText(expiry.strftime("%d-%m-%Y"))
 
-    def _populate(self, product: dict) -> None:
-        """Fill all fields from an existing product dict."""
-        self.name_input.setText(product.get("name", ""))
-        self.customer_input.setText(product.get("customer_name", ""))
-        self.order_input.setText(product.get("order_number", ""))
-        sd = date.fromisoformat(product["start_date"])
-        self.start_date_input.setDate(QDate(sd.year, sd.month, sd.day))
-        self.duration_input.setValue(product.get("duration_days", 30))
-        self.notes_input.setPlainText(product.get("notes", ""))
+    def _populate(self, product) -> None:
+        # Support both ORM Product and legacy dict
+        def g(key, default=""):
+            if isinstance(product, dict):
+                return product.get(key, default)
+            return getattr(product, key, default)
 
-    def _on_save(self) -> None:
-        if not self.name_input.text().strip():
-            self.name_input.setStyleSheet("border: 1px solid red;")
-            self.name_input.setFocus()
+        self._name.setText(g("product_name") or g("name"))
+        self._customer.setText(g("customer_name"))
+        self._order.setText(g("order_number"))
+        sd = g("start_date")
+        if isinstance(sd, str):
+            sd = date.fromisoformat(sd)
+        if sd:
+            self._start_date.setDate(_date_to_qdate(sd))
+        self._duration.setValue(int(g("duration_days", 90)))
+        self._notes.setPlainText(g("notes"))
+
+        for combo, key in [
+            (self._consultant, "consultant_id"),
+            (self._account_manager, "account_manager_id"),
+            (self._project_manager, "project_manager_id"),
+        ]:
+            cid = g(key)
+            if cid:
+                for i in range(combo.count()):
+                    if combo.itemData(i) == cid:
+                        combo.setCurrentIndex(i)
+                        break
+
+    def _validate(self) -> None:
+        if not self._name.text().strip():
+            QMessageBox.warning(self, "Error", "Product name is required.")
             return
-        self.name_input.setStyleSheet("")
         self.accept()
 
     def get_data(self) -> dict:
-        """Return validated form data as a dict ready for DatabaseService."""
-        qd = self.start_date_input.date()
         return {
-            "name": self.name_input.text().strip(),
-            "customer_name": self.customer_input.text().strip(),
-            "order_number": self.order_input.text().strip(),
-            "start_date": date(qd.year(), qd.month(), qd.day()),
-            "duration_days": self.duration_input.value(),
-            "notes": self.notes_input.toPlainText().strip(),
+            "product_name": self._name.text().strip(),
+            "customer_name": self._customer.text().strip(),
+            "order_number": self._order.text().strip(),
+            "start_date": _qdate_to_date(self._start_date.date()),
+            "duration_days": self._duration.value(),
+            "notes": self._notes.toPlainText().strip(),
+            "consultant_id": self._consultant.currentData(),
+            "account_manager_id": self._account_manager.currentData(),
+            "project_manager_id": self._project_manager.currentData(),
         }
