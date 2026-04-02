@@ -5,7 +5,8 @@ Usage: python -m migrations.migrate_sqlite --sqlite path/to/licenses.db
 from __future__ import annotations
 import argparse
 import sqlite3
-from datetime import date
+from datetime import date, datetime
+from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -19,6 +20,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sqlite", required=True, help="Path to SQLite licenses.db")
     args = parser.parse_args()
+
+    if not Path(args.sqlite).exists():
+        print(f"ERROR: SQLite file not found: {args.sqlite}")
+        sys.exit(1)
 
     url = os.getenv("DATABASE_URL")
     if not url:
@@ -75,7 +80,6 @@ def main() -> None:
         ntype = ntype_map.get(row["notification_type"])
         if not ntype:
             continue
-        from datetime import datetime
         existing_log = session.query(NotificationLog).filter_by(
             product_id=new_pid, notification_type=ntype).first()
         if existing_log:

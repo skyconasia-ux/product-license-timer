@@ -3,6 +3,7 @@ Run once on a fresh SQL Server database.
 Usage: python -m migrations.init_schema
 """
 from __future__ import annotations
+import hashlib
 import secrets
 import sys
 import bcrypt
@@ -53,7 +54,6 @@ def main() -> None:
     recovery_code = secrets.token_hex(16)
     recovery_path = os.path.join(os.path.dirname(__file__), ".recovery_code")
     with open(recovery_path, "w") as f:
-        import hashlib
         f.write(hashlib.sha256(recovery_code.encode()).hexdigest())
 
     print(f"\nSuperadmin created: {email}")
