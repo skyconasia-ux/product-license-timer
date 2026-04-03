@@ -65,6 +65,30 @@ def list_users(session: Session, caller: UserSession) -> list[User]:
     return session.query(User).order_by(User.created_at).all()
 
 
+def reset_password(
+    session: Session, caller: UserSession, user_id: int, new_password: str
+) -> None:
+    _require_role(caller, "admin", "superadmin")
+    if len(new_password) < 8:
+        raise ValueError("Password must be at least 8 characters.")
+    user = session.get(User, user_id)
+    if not user:
+        raise ValueError(f"User {user_id} not found.")
+    user.password_hash = hash_password(new_password)
+    session.commit()
+
+
+def set_active(
+    session: Session, caller: UserSession, user_id: int, active: bool
+) -> None:
+    _require_role(caller, "admin", "superadmin")
+    user = session.get(User, user_id)
+    if not user:
+        raise ValueError(f"User {user_id} not found.")
+    user.is_active = active
+    session.commit()
+
+
 def change_email(
     session: Session, caller: UserSession, user_id: int, new_email: str
 ) -> None:

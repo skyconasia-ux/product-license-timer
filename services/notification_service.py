@@ -238,6 +238,7 @@ def _send_smtp(subject: str, body: str, recipients: list[str], cfg: dict) -> boo
 
 def get_smtp_config() -> dict:
     """Read SMTP config from .env. Falls back to email_config.json if .env missing keys."""
+    load_dotenv(override=True)  # re-read .env — picks up changes saved since startup
     cfg = {
         "smtp_host": os.getenv("SMTP_HOST", ""),
         "smtp_port": os.getenv("SMTP_PORT", "587"),
