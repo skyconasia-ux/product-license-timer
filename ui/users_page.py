@@ -2,8 +2,9 @@
 from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QDialog, QFormLayout, QLineEdit, QComboBox, QCheckBox,
-    QDialogButtonBox, QMessageBox, QToolBar, QLabel, QMenu,
+    QDialog, QFormLayout, QLineEdit, QComboBox,
+    QDialogButtonBox, QMessageBox, QToolBar, QLabel,
+    QCheckBox, QMenu,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
@@ -11,46 +12,42 @@ from sqlalchemy.orm import Session
 from services.auth_service import UserSession
 from services.user_service import (
     create_user, promote_to_admin, demote_admin,
-    delete_user, list_users, reset_password, set_active, change_email,
+    delete_user, list_users, set_active, update_user_info,
 )
 
-COLS = ["Email", "Role", "Verified", "Active"]
+COLS = ["Name", "Email", "Role", "Verified", "Status"]
 
 
 class _UserForm(QDialog):
-    """Create new user — email + password + role."""
+    """Create new user — name, email, role only. Password is set by the user via email link."""
     def __init__(self, parent=None, caller: UserSession | None = None):
         super().__init__(parent)
         self.setWindowTitle("Create User")
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(380)
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
+        self._name = QLineEdit()
+        self._name.setPlaceholderText("Full name (optional)")
+
         self._email = QLineEdit()
         self._email.setPlaceholderText("user@company.com")
-
-        self._password = QLineEdit()
-        self._password.setEchoMode(QLineEdit.EchoMode.Password)
-        self._password.setPlaceholderText("Min 8 characters")
-
-        self._confirm = QLineEdit()
-        self._confirm.setEchoMode(QLineEdit.EchoMode.Password)
-        self._confirm.setPlaceholderText("Repeat password")
 
         self._role = QComboBox()
         roles = ["user", "admin"] if caller and caller.role in ("admin", "superadmin") else ["user"]
         self._role.addItems(roles)
 
-        note = QLabel("User will need to verify their email before logging in.\n"
-                      "Use 'Resend Verification' if email is not received.")
-        note.setStyleSheet("color: #64748b; font-size: 10px;")
-        note.setWordWrap(True)
-
+        form.addRow("Name", self._name)
         form.addRow("Email", self._email)
-        form.addRow("Password", self._password)
-        form.addRow("Confirm", self._confirm)
         form.addRow("Role", self._role)
         layout.addLayout(form)
+
+        note = QLabel(
+            "A verification link will be emailed to the user.\n"
+            "They must click it to set their password and activate their account."
+        )
+        note.setStyleSheet("color: #64748b; font-size: 10px;")
+        note.setWordWrap(True)
         layout.addWidget(note)
 
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Save |
@@ -63,99 +60,92 @@ class _UserForm(QDialog):
         if "@" not in self._email.text():
             QMessageBox.warning(self, "Error", "Invalid email address.")
             return
-        if len(self._password.text()) < 8:
-            QMessageBox.warning(self, "Error", "Password must be at least 8 characters.")
-            return
-        if self._password.text() != self._confirm.text():
-            QMessageBox.warning(self, "Error", "Passwords do not match.")
-            return
         self.accept()
 
     def get_data(self) -> dict:
         return {
+            "full_name": self._name.text().strip(),
             "email": self._email.text().strip(),
-            "password": self._password.text(),
             "role": self._role.currentText(),
         }
 
 
-class _EditUserDialog(QDialog):
-    """Edit existing user — role, active, password reset, email (superadmin)."""
-    def __init__(self, user, caller: UserSession, parent=None):
+class _UserPropertiesDialog(QDialog):
+    """View and edit user properties."""
+    def __init__(self, user, session: Session, caller: UserSession, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Edit User — {user.email}")
-        self.setMinimumWidth(380)
+        self.setWindowTitle("User Properties")
+        self.setMinimumWidth(400)
         self._user = user
+        self._session = session
         self._caller = caller
+        self._build()
+
+    def _build(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
         form = QFormLayout()
 
-        self._email = QLineEdit(user.email)
-        self._email.setEnabled(caller.role == "superadmin")
+        self._full_name = QLineEdit(self._user.full_name or "")
+        self._full_name.setPlaceholderText("Full name")
 
-        self._role = QComboBox()
-        if caller.role == "superadmin":
-            roles = ["user", "admin", "superadmin"]
-        else:
-            roles = ["user", "admin"]
-        self._role.addItems(roles)
-        try:
-            self._role.setCurrentIndex(roles.index(user.role.value))
-        except ValueError:
-            self._role.setCurrentIndex(0)
+        self._email = QLineEdit(self._user.email)
+        self._email.setReadOnly(True)
+        self._email.setStyleSheet("color: #64748b;")
 
-        self._active = QCheckBox("Active")
-        self._active.setChecked(user.is_active)
+        self._role_label = QLabel(self._user.role.value)
+        self._role_label.setStyleSheet("font-weight: bold;")
 
-        self._verified = QCheckBox("Verified")
-        self._verified.setChecked(user.is_verified)
+        is_superadmin = self._user.role.value == "superadmin"
+        is_admin = self._user.role.value in ("admin", "superadmin")
 
-        self._password = QLineEdit()
-        self._password.setEchoMode(QLineEdit.EchoMode.Password)
-        self._password.setPlaceholderText("Leave blank to keep current password")
+        self._make_admin = QCheckBox("Make Admin")
+        self._make_admin.setChecked(is_admin)
+        if is_superadmin:
+            self._make_admin.setEnabled(False)
+            self._make_admin.setToolTip("Cannot change superadmin role")
 
-        self._confirm = QLineEdit()
-        self._confirm.setEchoMode(QLineEdit.EchoMode.Password)
-        self._confirm.setPlaceholderText("Confirm new password")
+        self._disable_account = QCheckBox("Disable Account")
+        self._disable_account.setChecked(not self._user.is_active)
+        if is_superadmin and self._caller.role != "superadmin":
+            self._disable_account.setEnabled(False)
 
+        form.addRow("Full Name", self._full_name)
         form.addRow("Email", self._email)
-        form.addRow("Role", self._role)
-        form.addRow("", self._active)
-        form.addRow("", self._verified)
-        form.addRow("New Password", self._password)
-        form.addRow("Confirm", self._confirm)
+        form.addRow("Current Role", self._role_label)
+        form.addRow("", self._make_admin)
+        form.addRow("", self._disable_account)
         layout.addLayout(form)
 
-        if caller.role != "superadmin":
-            note = QLabel("Email editing requires superadmin.")
-            note.setStyleSheet("color: #64748b; font-size: 10px;")
-            layout.addWidget(note)
-
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Save |
-                                QDialogButtonBox.StandardButton.Cancel)
-        btns.accepted.connect(self._validate)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._save)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
-    def _validate(self) -> None:
-        pw = self._password.text()
-        if pw:
-            if len(pw) < 8:
-                QMessageBox.warning(self, "Error", "Password must be at least 8 characters.")
-                return
-            if pw != self._confirm.text():
-                QMessageBox.warning(self, "Error", "Passwords do not match.")
-                return
-        self.accept()
+    def _save(self) -> None:
+        try:
+            update_user_info(self._session, self._caller, self._user.id,
+                             full_name=self._full_name.text())
 
-    def get_data(self) -> dict:
-        return {
-            "email": self._email.text().strip(),
-            "role": self._role.currentText(),
-            "is_active": self._active.isChecked(),
-            "is_verified": self._verified.isChecked(),
-            "password": self._password.text() or None,
-        }
+            is_superadmin = self._user.role.value == "superadmin"
+            if not is_superadmin:
+                currently_admin = self._user.role.value == "admin"
+                want_admin = self._make_admin.isChecked()
+                if want_admin and not currently_admin:
+                    promote_to_admin(self._session, self._caller, self._user.id)
+                elif not want_admin and currently_admin:
+                    demote_admin(self._session, self._caller, self._user.id)
+
+            want_active = not self._disable_account.isChecked()
+            if want_active != self._user.is_active:
+                set_active(self._session, self._caller, self._user.id, want_active)
+
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
 
 
 class UsersPage(QWidget):
@@ -163,6 +153,7 @@ class UsersPage(QWidget):
         super().__init__(parent)
         self._session = session
         self._caller = caller
+        self._users: list = []
         self._build()
         self.refresh()
 
@@ -172,49 +163,21 @@ class UsersPage(QWidget):
 
         tb = QToolBar()
         tb.setMovable(False)
-
-        actions = [("+ Add User", self._add_user)]
-        if self._caller.role in ("admin", "superadmin"):
-            actions += [
-                ("✏ Edit", self._edit_user),
-                ("✓ Verify", self._verify_user),
-                ("↑ Make Admin", self._promote),
-            ]
-        if self._caller.role == "superadmin":
-            actions += [
-                ("↓ Remove Admin", self._demote),
-                ("🗑 Delete", self._delete_user),
-            ]
-
-        for label, slot in actions:
-            a = QAction(label, self)
-            a.triggered.connect(slot)
-            tb.addAction(a)
+        add_action = QAction("+ Add User", self)
+        add_action.triggered.connect(self._add_user)
+        tb.addAction(add_action)
 
         self._table = QTableWidget(0, len(COLS))
         self._table.setHorizontalHeaderLabels(COLS)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.horizontalHeader().setStretchLastSection(True)
-        self._table.doubleClicked.connect(lambda _: self._edit_user())
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
+        self._table.doubleClicked.connect(self._open_properties)
 
         layout.addWidget(tb)
         layout.addWidget(self._table)
-
-    def _show_context_menu(self, pos) -> None:
-        if self._selected_id() is None:
-            return
-        menu = QMenu(self)
-        menu.addAction("✏ Edit", self._edit_user)
-        menu.addAction("✓ Verify", self._verify_user)
-        menu.addAction("↑ Make Admin", self._promote)
-        if self._caller.role == "superadmin":
-            menu.addAction("↓ Remove Admin", self._demote)
-            menu.addSeparator()
-            menu.addAction("🗑 Delete", self._delete_user)
-        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def refresh(self) -> None:
         try:
@@ -226,10 +189,11 @@ class UsersPage(QWidget):
         for row, u in enumerate(users):
             self._table.insertRow(row)
             for col, val in enumerate([
+                u.full_name or "",
                 u.email,
                 u.role.value,
                 "Yes" if u.is_verified else "No",
-                "Yes" if u.is_active else "No",
+                "Active" if u.is_active else "Disabled",
             ]):
                 item = QTableWidgetItem(val)
                 item.setData(Qt.ItemDataRole.UserRole, u.id)
@@ -239,108 +203,147 @@ class UsersPage(QWidget):
         row = self._table.currentRow()
         if row < 0:
             return None
-        return self._table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        item = self._table.item(row, 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
 
-    def _add_user(self) -> None:
-        dlg = _UserForm(self, caller=self._caller)
-        if dlg.exec():
-            data = dlg.get_data()
+    def _get_user(self, user_id: int):
+        return next((u for u in self._users if u.id == user_id), None)
+
+    def _show_context_menu(self, pos) -> None:
+        uid = self._selected_id()
+        if uid is None:
+            return
+        user = self._get_user(uid)
+        if user is None:
+            return
+
+        is_superadmin = user.role.value == "superadmin"
+        is_admin = user.role.value == "admin"
+        caller_is_superadmin = self._caller.role == "superadmin"
+
+        menu = QMenu(self)
+
+        edit_act = menu.addAction("Edit")
+        menu.addSeparator()
+
+        make_admin_act = None
+        remove_admin_act = None
+        if not is_superadmin and not is_admin:
+            make_admin_act = menu.addAction("Make Admin")
+        if is_admin:
+            remove_admin_act = menu.addAction("Remove Admin")
+
+        menu.addSeparator()
+        disable_act = None
+        enable_act = None
+        if user.is_active:
+            disable_act = menu.addAction("Disable Account")
+        else:
+            enable_act = menu.addAction("Enable Account")
+
+        menu.addSeparator()
+        resend_act = menu.addAction("Resend Verification Link") if not user.is_verified else None
+
+        if caller_is_superadmin:
+            if not user.is_verified:
+                verify_act = menu.addAction("✓ Verify Manually")
+            else:
+                verify_act = None
+            menu.addSeparator()
+            delete_act = menu.addAction("Delete")
+        else:
+            verify_act = None
+            delete_act = None
+
+        chosen = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if chosen is None:
+            return
+
+        if chosen == edit_act:
+            self._open_properties()
+        elif make_admin_act and chosen == make_admin_act:
+            self._confirm_action(
+                f"Make {user.email} an admin?",
+                lambda: promote_to_admin(self._session, self._caller, uid),
+            )
+        elif remove_admin_act and chosen == remove_admin_act:
+            self._confirm_action(
+                f"Remove admin from {user.email}?",
+                lambda: demote_admin(self._session, self._caller, uid),
+            )
+        elif disable_act and chosen == disable_act:
+            self._confirm_action(
+                f"Disable account for {user.email}?",
+                lambda: set_active(self._session, self._caller, uid, False),
+            )
+        elif enable_act and chosen == enable_act:
+            self._confirm_action(
+                f"Enable account for {user.email}?",
+                lambda: set_active(self._session, self._caller, uid, True),
+            )
+        elif resend_act and chosen == resend_act:
+            self._resend_link(uid)
+        elif verify_act and chosen == verify_act:
+            self._verify_user(uid)
+        elif delete_act and chosen == delete_act:
+            self._delete_user(uid)
+
+    def _confirm_action(self, message: str, action) -> None:
+        reply = QMessageBox.question(
+            self, "Confirm", message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
             try:
-                create_user(self._session, self._caller,
-                            email=data["email"],
-                            password=data["password"],
-                            role=data["role"])
-                from models.orm import User
-                from services.auth_service import create_verification_token
-                from services.notification_service import _send_smtp, get_smtp_config
-                u = self._session.query(User).filter_by(email=data["email"]).first()
-                if u:
-                    token = create_verification_token(self._session, u.id)
-                    cfg = get_smtp_config()
-                    sent = False
-                    if cfg.get("smtp_host") and cfg.get("smtp_user"):
-                        sent = _send_smtp(
-                            subject="Verify your Product License Timer account",
-                            body=(
-                                f"Hello,\n\n"
-                                f"Your account ({data['email']}) has been created.\n\n"
-                                f"Your verification token is:\n\n"
-                                f"    {token}\n\n"
-                                f"Enter this token in the app using 'Verify Account' "
-                                f"on the login screen.\n"
-                                f"This token expires in 24 hours.\n"
-                            ),
-                            recipients=[data["email"]],
-                            cfg=cfg,
-                        )
-                    if sent:
-                        QMessageBox.information(
-                            self, "User Created",
-                            f"{data['email']} created.\n"
-                            f"A verification email has been sent."
-                        )
-                    else:
-                        QMessageBox.information(
-                            self, "User Created",
-                            f"{data['email']} created.\n\n"
-                            f"Email could not be sent — verification token:\n\n"
-                            f"{token}\n\n"
-                            f"Share this with the user, or use 'Verify' to manually verify."
-                        )
+                action()
                 self.refresh()
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
-    def _edit_user(self) -> None:
+    def _open_properties(self) -> None:
         uid = self._selected_id()
         if uid is None:
-            QMessageBox.information(self, "No Selection", "Select a user to edit.")
             return
-        from models.orm import User, UserRole
-        u = self._session.get(User, uid)
-        if not u:
+        user = self._get_user(uid)
+        if user is None:
             return
-        if u.role.value == "superadmin" and self._caller.role != "superadmin":
-            QMessageBox.warning(self, "Permission Denied",
-                                "Only a superadmin can edit a superadmin account.")
-            return
-        dlg = _EditUserDialog(u, caller=self._caller, parent=self)
-        if dlg.exec():
-            data = dlg.get_data()
-            try:
-                # Email (superadmin only)
-                if data["email"] != u.email:
-                    change_email(self._session, self._caller, uid, data["email"])
-                    self._session.refresh(u)
-                # Role
-                if data["role"] != u.role.value:
-                    if data["role"] == "admin":
-                        promote_to_admin(self._session, self._caller, uid)
-                    elif data["role"] == "user":
-                        demote_admin(self._session, self._caller, uid)
-                    elif data["role"] == "superadmin" and self._caller.role == "superadmin":
-                        u.role = UserRole.superadmin
-                        self._session.commit()
-                # Active
-                if data["is_active"] != u.is_active:
-                    set_active(self._session, self._caller, uid, data["is_active"])
-                # Verified
-                if data["is_verified"] != u.is_verified:
-                    self._session.refresh(u)
-                    u.is_verified = data["is_verified"]
-                    self._session.commit()
-                # Password reset
-                if data["password"]:
-                    reset_password(self._session, self._caller, uid, data["password"])
-                self.refresh()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
+        dlg = _UserPropertiesDialog(user, self._session, self._caller, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.refresh()
 
-    def _verify_user(self) -> None:
-        uid = self._selected_id()
-        if uid is None:
-            QMessageBox.information(self, "No Selection", "Select a user to verify.")
+    def _show_link_dialog(self, email: str, link: str) -> None:
+        """Show the verification link in a selectable dialog so admin can copy/share it."""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Verification Link")
+        dlg.setMinimumWidth(520)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+        layout.addWidget(QLabel(
+            f"SMTP is not configured. Share this activation link with <b>{email}</b>:\n"
+            f"(The app must be running for the link to work.)"
+        ))
+        link_box = QLineEdit(link)
+        link_box.setReadOnly(True)
+        link_box.selectAll()
+        layout.addWidget(link_box)
+        layout.addWidget(QLabel("This link expires in 24 hours."))
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btns.accepted.connect(dlg.accept)
+        layout.addWidget(btns)
+        dlg.exec()
+
+    def _resend_link(self, uid: int) -> None:
+        user = self._get_user(uid)
+        if not user:
             return
+        if user.is_verified:
+            QMessageBox.information(self, "Already Verified",
+                                    "This account is already verified.")
+            return
+        self._send_verification_link(user.email, resend=True)
+
+    def _verify_user(self, uid: int) -> None:
         from models.orm import User
         u = self._session.get(User, uid)
         if u:
@@ -348,38 +351,76 @@ class UsersPage(QWidget):
             self._session.commit()
             self.refresh()
 
-    def _promote(self) -> None:
-        uid = self._selected_id()
-        if uid is None:
-            QMessageBox.information(self, "No Selection", "Select a user to promote.")
-            return
-        try:
-            promote_to_admin(self._session, self._caller, uid)
-            self.refresh()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-
-    def _demote(self) -> None:
-        uid = self._selected_id()
-        if uid is None:
-            QMessageBox.information(self, "No Selection", "Select an admin to demote.")
-            return
-        try:
-            demote_admin(self._session, self._caller, uid)
-            self.refresh()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-
-    def _delete_user(self) -> None:
-        uid = self._selected_id()
-        if uid is None:
-            QMessageBox.information(self, "No Selection", "Select a user to delete.")
-            return
-        reply = QMessageBox.question(self, "Confirm", "Delete this user? This cannot be undone.",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    def _delete_user(self, uid: int) -> None:
+        reply = QMessageBox.question(
+            self, "Confirm Delete",
+            "Delete this user? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 delete_user(self._session, self._caller, uid)
                 self.refresh()
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
+
+    def _add_user(self) -> None:
+        dlg = _UserForm(self, caller=self._caller)
+        if dlg.exec():
+            data = dlg.get_data()
+            try:
+                import secrets
+                temp_pw = secrets.token_urlsafe(24)  # random, unshared — replaced on verification
+                create_user(self._session, self._caller,
+                            email=data["email"],
+                            password=temp_pw,
+                            role=data["role"],
+                            full_name=data["full_name"])
+                self._send_verification_link(data["email"])
+                self.refresh()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+
+    def _send_verification_link(self, email: str, resend: bool = False) -> None:
+        """Generate a verification token and email the activation link to the user."""
+        from models.orm import User
+        from services.auth_service import create_verification_token
+        from services.notification_service import _send_smtp, get_smtp_config
+        from services.verification_server import make_verify_link
+
+        u = self._session.query(User).filter_by(email=email).first()
+        if not u:
+            return
+
+        token = create_verification_token(self._session, u.id)
+        link = make_verify_link(token)
+        action = "resent" if resend else "sent"
+
+        cfg = get_smtp_config()
+        sent = False
+        if cfg.get("smtp_host") and cfg.get("smtp_user"):
+            name_part = f"Hello {u.full_name},\n\n" if u.full_name else "Hello,\n\n"
+            sent = _send_smtp(
+                subject="Activate your Product License Timer account",
+                body=(
+                    f"{name_part}"
+                    f"Your account ({email}) has been created on Product License Timer.\n\n"
+                    f"Click the link below to set your password and activate your account:\n\n"
+                    f"    {link}\n\n"
+                    f"This link expires in 24 hours and can only be used once.\n"
+                    f"Once activated, open the app and log in with your email address.\n\n"
+                    f"If you did not expect this email, please ignore it.\n"
+                ),
+                recipients=[email],
+                cfg=cfg,
+            )
+
+        if sent:
+            QMessageBox.information(
+                self, "Verification Link Sent",
+                f"Activation email {action} to {email}.\n\n"
+                f"The user must click the link to set their password."
+            )
+        else:
+            # SMTP not configured — show link so admin can share it another way
+            self._show_link_dialog(email, link)

@@ -22,6 +22,7 @@ class UserRole(enum.Enum):
 
 class ContactRoleType(enum.Enum):
     consultant = "Consultant"
+    technical_consultant = "Technical Consultant"
     account_manager = "Account Manager"
     project_manager = "Project Manager"
 
@@ -42,6 +43,7 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.user)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -82,6 +84,8 @@ class Product(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     consultant_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
+    technical_consultant_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
     account_manager_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
     project_manager_id: Mapped[int | None] = mapped_column(
@@ -105,3 +109,38 @@ class EmailVerification(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"))
     token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class EmailChangeToken(Base):
+    __tablename__ = "email_change_tokens"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    new_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AccountSecureToken(Base):
+    __tablename__ = "account_secure_tokens"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # The email address the notification was sent to — used for historical tracing.
+    # For password-change alerts this equals the current email.
+    # For email-change alerts this is the OLD (replaced) email address.
+    triggered_from_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)

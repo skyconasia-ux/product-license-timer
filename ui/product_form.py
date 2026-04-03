@@ -92,9 +92,11 @@ class ProductForm(QDialog):
 
         own_form = QFormLayout()
         self._consultant = self._make_contact_combo("Consultant")
+        self._technical_consultant = self._make_contact_combo("Technical Consultant")
         self._account_manager = self._make_contact_combo("Account Manager")
         self._project_manager = self._make_contact_combo("Project Manager")
         own_form.addRow("Consultant", self._consultant)
+        own_form.addRow("Technical Consultant", self._technical_consultant)
         own_form.addRow("Account Manager", self._account_manager)
         own_form.addRow("Project Manager", self._project_manager)
         layout.addLayout(own_form)
@@ -141,6 +143,7 @@ class ProductForm(QDialog):
 
         for combo, key in [
             (self._consultant, "consultant_id"),
+            (self._technical_consultant, "technical_consultant_id"),
             (self._account_manager, "account_manager_id"),
             (self._project_manager, "project_manager_id"),
         ]:
@@ -166,6 +169,7 @@ class ProductForm(QDialog):
             "duration_days": self._duration.value(),
             "notes": self._notes.toPlainText().strip(),
             "consultant_id": self._consultant.currentData(),
+            "technical_consultant_id": self._technical_consultant.currentData(),
             "account_manager_id": self._account_manager.currentData(),
             "project_manager_id": self._project_manager.currentData(),
         }

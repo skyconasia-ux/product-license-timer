@@ -17,6 +17,7 @@ def add_product(
     order_number: str = "",
     notes: str = "",
     consultant_id: int | None = None,
+    technical_consultant_id: int | None = None,
     account_manager_id: int | None = None,
     project_manager_id: int | None = None,
 ) -> Product:
@@ -33,6 +34,7 @@ def add_product(
         notes=notes,
         created_by=caller.user_id,
         consultant_id=consultant_id,
+        technical_consultant_id=technical_consultant_id,
         account_manager_id=account_manager_id,
         project_manager_id=project_manager_id,
     )
@@ -52,6 +54,7 @@ def update_product(
     order_number: str = "",
     notes: str = "",
     consultant_id: int | None = None,
+    technical_consultant_id: int | None = None,
     account_manager_id: int | None = None,
     project_manager_id: int | None = None,
 ) -> None:
@@ -70,6 +73,7 @@ def update_product(
     p.expiry_date = expiry
     p.notes = notes
     p.consultant_id = consultant_id
+    p.technical_consultant_id = technical_consultant_id
     p.account_manager_id = account_manager_id
     p.project_manager_id = project_manager_id
     session.commit()

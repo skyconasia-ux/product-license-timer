@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QTabWidget, QWidget,
     QFormLayout, QSpinBox, QLineEdit, QCheckBox,
     QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QMessageBox,
+    QLabel, QMessageBox, QScrollArea, QFrame, QTextBrowser,
 )
 from dotenv import load_dotenv, set_key
 
@@ -55,7 +55,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setMinimumWidth(500)
         self._caller = caller
-        self._has_smtp_tab = (caller is None or caller.role in ("admin", "superadmin"))
+        self._is_admin = (caller is None or caller.role in ("admin", "superadmin"))
         self._app_cfg = _load(APP_CONFIG_PATH, _APP_DEFAULTS)
         self._email_cfg = _load(EMAIL_CONFIG_PATH, _EMAIL_DEFAULTS)
         self._build_ui()
@@ -64,9 +64,10 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_timer_tab(), "Timer")
-        if self._has_smtp_tab:
-            self._tabs.addTab(self._build_email_tab(), "Email / SMTP")
+        self._tabs.addTab(self._build_email_tab(), "Email / SMTP")
         self._tabs.addTab(self._build_system_tab(), "System")
+        if self._is_admin:
+            self._tabs.addTab(self._build_verification_tab(), "Verification")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
@@ -135,6 +136,19 @@ class SettingsDialog(QDialog):
         test_btn = QPushButton("Test Connection")
         test_btn.clicked.connect(self._test_connection)
 
+        if not self._is_admin:
+            self.smtp_host.setReadOnly(True)
+            self.smtp_port.setReadOnly(True)
+            self.smtp_user.setReadOnly(True)
+            self.smtp_pass.setReadOnly(True)
+            show_btn.setEnabled(False)
+            self.smtp_tls.setEnabled(False)
+            self.sender_name.setReadOnly(True)
+            test_btn.setEnabled(False)
+            readonly_note = QLabel("SMTP settings are read-only. Contact an admin to make changes.")
+            readonly_note.setStyleSheet("color: #64748b; font-size: 10px;")
+            form.addRow(readonly_note)
+
         form.addRow("SMTP Host", self.smtp_host)
         form.addRow("SMTP Port", self.smtp_port)
         form.addRow("Username", self.smtp_user)
@@ -193,6 +207,171 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return w
 
+    # --------------------------------------------------------- Verification tab
+    def _build_verification_tab(self) -> QWidget:
+        w = QWidget()
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        # ---- Current URL badge ----
+        from services.verification_server import get_base_url
+        self._current_url_label = QLabel(f"Current link base URL: {get_base_url()}")
+        self._current_url_label.setStyleSheet(
+            "color: #16a34a; font-size: 11px; font-weight: bold;"
+        )
+        layout.addWidget(self._current_url_label)
+
+        # ---- Fields ----
+        form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+
+        self.verify_url = QLineEdit(self._app_cfg.get("verification_server_url", ""))
+        self.verify_url.setPlaceholderText("https://verify.yourdomain.com  (leave blank for hostname auto-detect)")
+
+        self.verify_port = QSpinBox()
+        self.verify_port.setRange(1024, 65535)
+        self.verify_port.setValue(self._app_cfg.get("verification_server_port", 8765))
+
+        form.addRow("Public Verification URL", self.verify_url)
+        form.addRow("Local Server Port", self.verify_port)
+        layout.addLayout(form)
+
+        # ---- Test button ----
+        test_row = QHBoxLayout()
+        test_btn = QPushButton("Test Public URL")
+        test_btn.setFixedWidth(150)
+        test_btn.clicked.connect(self._test_public_url)
+        test_row.addWidget(test_btn)
+        test_row.addStretch()
+        layout.addLayout(test_row)
+
+        # ---- Setup guide ----
+        layout.addSpacing(8)
+        guide_title = QLabel("Setup Guide")
+        guide_title.setStyleSheet("font-weight: bold; color: #1e293b;")
+        layout.addWidget(guide_title)
+
+        guide = QTextBrowser()
+        guide.setOpenExternalLinks(False)
+        guide.setMinimumHeight(220)
+        guide.setStyleSheet(
+            "background: #f8fafc; border: 1px solid #e2e8f0; "
+            "border-radius: 6px; font-size: 12px; color: #334155;"
+        )
+        guide.setPlainText(
+            "The verification server runs inside this app on the Local Server Port "
+            "(default 8765). Emailed links point to the Public Verification URL so "
+            "users can click them from anywhere.\n\n"
+            "Option A — Cloudflare Tunnel (recommended for production):\n"
+            "  1. Install cloudflared on this machine.\n"
+            "  2. Run: cloudflared tunnel login\n"
+            "  3. Run: cloudflared tunnel create <name>\n"
+            "  4. Create a CNAME record in your DNS dashboard:\n"
+            "         verify.yourdomain.com  →  <tunnel-uuid>.cfargotunnel.com\n"
+            "  5. Create config.yml:\n"
+            "         tunnel: <uuid>\n"
+            "         credentials-file: C:\\Users\\...\\<uuid>.json\n"
+            "         ingress:\n"
+            "           - hostname: verify.yourdomain.com\n"
+            "             service: http://localhost:8765\n"
+            "           - service: http_status:404\n"
+            "  6. Run: cloudflared tunnel run <name>\n"
+            "  7. Set Public Verification URL to https://verify.yourdomain.com\n\n"
+            "Option B — Local network only (no public internet):\n"
+            "  Leave Public Verification URL blank. Links will use this machine's\n"
+            "  hostname automatically. Users must be on the same network.\n\n"
+            "Option C — Reverse proxy / VPN:\n"
+            "  Point your reverse proxy to http://localhost:<port> and set the\n"
+            "  Public Verification URL to the public-facing HTTPS address.\n\n"
+            "Changes take effect immediately for new tokens (no restart needed)."
+        )
+        layout.addWidget(guide)
+        layout.addStretch()
+
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+        return w
+
+    def _test_public_url(self) -> None:
+        import urllib.request
+        port = self.verify_port.value()
+        public_url = self.verify_url.text().strip()
+
+        # Step 1: test the local embedded server (always works if the app is running)
+        local_ok = False
+        local_error = ""
+        try:
+            with urllib.request.urlopen(
+                f"http://localhost:{port}/verify", timeout=5
+            ) as resp:
+                local_ok = resp.status in (200, 400)
+        except Exception as e:
+            local_error = str(e)
+
+        # Step 2: attempt the public URL using /health — always returns 200 with no token needed.
+        # May fail on this machine if internal AD DNS can't resolve the Cloudflare hostname.
+        public_status = ""
+        health_url = ""
+        if public_url:
+            health_url = public_url.rstrip("/") + "/health"
+            try:
+                with urllib.request.urlopen(health_url, timeout=8) as resp:
+                    public_status = "reachable" if resp.status == 200 else f"HTTP {resp.status}"
+            except Exception as e:
+                err = str(e)
+                if "getaddrinfo" in err or "Name or service" in err or "11001" in err:
+                    public_status = "dns_internal"
+                else:
+                    public_status = f"error: {err}"
+
+        # Build result message
+        lines = []
+        if local_ok:
+            lines.append(f"Local server (port {port}):  RUNNING")
+        else:
+            lines.append(
+                f"Local server (port {port}):  NOT REACHABLE\n"
+                f"  {local_error}\n"
+                f"  The embedded verification server may not have started.\n"
+                f"  Restart the app and check for port conflicts."
+            )
+
+        if public_url:
+            lines.append("")
+            if public_status == "reachable":
+                lines.append(f"Public URL ({public_url}):  REACHABLE\n"
+                             f"  Tunnel is working correctly.")
+                self._current_url_label.setText(f"Current link base URL: {public_url}")
+            elif public_status == "dns_internal":
+                lines.append(
+                    f"Public URL — DNS not resolved from this server.\n\n"
+                    f"This is normal: your server's internal AD DNS cannot look up\n"
+                    f"the Cloudflare hostname. This does NOT mean the tunnel is broken.\n\n"
+                    f"To confirm the tunnel is working, open this URL in a browser\n"
+                    f"on your phone or any machine outside this network:\n\n"
+                    f"  {health_url}\n\n"
+                    f"You should see a green 'Verification Server is Running' page.\n"
+                    f"If you get DNS_PROBE_FINISHED_NXDOMAIN there too, the Cloudflare\n"
+                    f"DNS CNAME record for {public_url.split('//')[-1]} has not been\n"
+                    f"created yet — add it in your Cloudflare DNS dashboard."
+                )
+            else:
+                lines.append(f"Public URL ({public_url}):  {public_status}")
+
+        msg = "\n".join(lines)
+        if local_ok:
+            QMessageBox.information(self, "Server Status", msg)
+        else:
+            QMessageBox.warning(self, "Server Status", msg)
+
     def _autostart_enabled(self) -> bool:
         try:
             import winreg
@@ -245,12 +424,21 @@ class SettingsDialog(QDialog):
         max_v = self.max_spin.value()
         interval = max(min_v, min(max_v, self.interval_spin.value()))
 
-        _save(APP_CONFIG_PATH, {
+        app_cfg: dict = {
             "timer_interval_seconds": interval,
             "timer_min_seconds": min_v,
             "timer_max_seconds": max_v,
-        })
-        if self._has_smtp_tab:
+            "verification_server_port": (
+                self.verify_port.value() if self._is_admin
+                else self._app_cfg.get("verification_server_port", 8765)
+            ),
+            "verification_server_url": (
+                self.verify_url.text().strip() if self._is_admin
+                else self._app_cfg.get("verification_server_url", "")
+            ),
+        }
+        _save(APP_CONFIG_PATH, app_cfg)
+        if self._is_admin:
             self._persist_smtp()
 
     def _on_save(self) -> None:

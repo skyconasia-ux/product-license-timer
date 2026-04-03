@@ -16,6 +16,7 @@ def _require_role(caller: UserSession, *roles: str) -> None:
 def create_user(
     session: Session, caller: UserSession,
     email: str, password: str, role: str,
+    full_name: str = "",
 ) -> User:
     _require_role(caller, "admin", "superadmin")
     if not _EMAIL_RE.match(email):
@@ -24,6 +25,7 @@ def create_user(
         raise ValueError(f"Email already exists: {email}")
     user = User(
         email=email,
+        full_name=full_name.strip() or None,
         password_hash=hash_password(password),
         role=UserRole[role],
         is_verified=False,
@@ -101,4 +103,28 @@ def change_email(
     if not user:
         raise ValueError(f"User {user_id} not found")
     user.email = new_email
+    session.commit()
+
+
+def set_active(session: Session, caller: UserSession, user_id: int, active: bool) -> None:
+    """Enable or disable a user account. Requires admin+."""
+    _require_role(caller, "admin", "superadmin")
+    user = session.get(User, user_id)
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+    user.is_active = active
+    session.commit()
+
+
+def update_user_info(
+    session: Session, caller: UserSession, user_id: int,
+    full_name: str | None = None,
+) -> None:
+    """Update editable user fields (full_name). Requires admin+."""
+    _require_role(caller, "admin", "superadmin")
+    user = session.get(User, user_id)
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+    if full_name is not None:
+        user.full_name = full_name.strip() or None
     session.commit()

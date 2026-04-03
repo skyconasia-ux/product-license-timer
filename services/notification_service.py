@@ -134,7 +134,7 @@ def resolve_recipients(session, product) -> list[str]:
         emails.append(r.email)
 
     # Product-linked contacts
-    for fk in ("consultant_id", "account_manager_id", "project_manager_id"):
+    for fk in ("consultant_id", "technical_consultant_id", "account_manager_id", "project_manager_id"):
         cid = getattr(product, fk, None)
         if cid:
             contact = session.get(Contact, cid)
@@ -175,9 +175,10 @@ def format_email_body(session, product, threshold: int) -> str:
         f"Expiry Date     : {fmt(product.expiry_date)}\n"
         f"Days Remaining  : {threshold}\n"
         f"Threshold       : {threshold}-day warning\n"
-        f"Consultant      : {_contact_display(session, getattr(product, 'consultant_id', None))}\n"
-        f"Account Manager : {_contact_display(session, getattr(product, 'account_manager_id', None))}\n"
-        f"Project Manager : {_contact_display(session, getattr(product, 'project_manager_id', None))}\n\n"
+        f"Consultant          : {_contact_display(session, getattr(product, 'consultant_id', None))}\n"
+        f"Technical Consultant: {_contact_display(session, getattr(product, 'technical_consultant_id', None))}\n"
+        f"Account Manager     : {_contact_display(session, getattr(product, 'account_manager_id', None))}\n"
+        f"Project Manager     : {_contact_display(session, getattr(product, 'project_manager_id', None))}\n\n"
         f"Please renew or arrange a replacement license before the expiry date."
     )
 

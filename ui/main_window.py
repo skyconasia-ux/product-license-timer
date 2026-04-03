@@ -82,6 +82,10 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(self._recipients_widget) # index 2
             self._stack.addWidget(self._users_widget)      # index 3
 
+        from ui.profile_page import ProfilePage
+        self._profile_widget = ProfilePage(self._session, self._user)
+        self._profile_idx = self._stack.addWidget(self._profile_widget)
+
         self._stack.setCurrentIndex(0)
         v_layout.addWidget(self._stack)
 
@@ -133,6 +137,12 @@ class MainWindow(QMainWindow):
             layout.addWidget(self._nav_recipients)
             layout.addWidget(self._nav_users)
 
+        self._nav_profile = QPushButton("🙍  My Profile")
+        self._nav_profile.clicked.connect(
+            lambda: self._nav_to(self._profile_idx, self._nav_profile)
+        )
+        layout.addWidget(self._nav_profile)
+
         layout.addStretch()
 
         sep = QFrame()
@@ -160,7 +170,8 @@ class MainWindow(QMainWindow):
 
     def _nav_to(self, index: int, btn: QPushButton) -> None:
         self._stack.setCurrentIndex(index)
-        for b in [self._nav_products, self._nav_contacts, self._nav_recipients, self._nav_users]:
+        for b in [self._nav_products, self._nav_contacts,
+                  self._nav_recipients, self._nav_users, self._nav_profile]:
             if b:
                 b.setProperty("active", "false")
                 b.style().unpolish(b)
@@ -333,17 +344,25 @@ class MainWindow(QMainWindow):
                 "expiry_date": p.expiry_date,
                 "notes": p.notes,
                 "consultant_name": None,
+                "technical_consultant_name": None,
                 "account_manager_name": None,
                 "project_manager_name": None,
+                "created_by_name": None,
             }
             for key, fk in [
                 ("consultant_name", p.consultant_id),
+                ("technical_consultant_name", p.technical_consultant_id),
                 ("account_manager_name", p.account_manager_id),
                 ("project_manager_name", p.project_manager_id),
             ]:
                 if fk:
                     c = self._session.get(Contact, fk)
                     d[key] = c.name if c else None
+            if p.created_by:
+                from models.orm import User
+                creator = self._session.get(User, p.created_by)
+                if creator:
+                    d["created_by_name"] = creator.full_name or creator.email
             result.append(d)
         return result
 

@@ -13,7 +13,7 @@ from services.contact_service import (
     add_contact, update_contact, delete_contact, list_contacts,
 )
 
-ROLES = ["Consultant", "Account Manager", "Project Manager"]
+ROLES = ["Consultant", "Technical Consultant", "Account Manager", "Project Manager"]
 COLS = ["Name", "Email", "Role"]
 
 

@@ -45,10 +45,13 @@ def _assigned_to(p) -> str:
     """
     parts = []
     cn = _get(p, "consultant_name")
+    tc = _get(p, "technical_consultant_name")
     am = _get(p, "account_manager_name")
     pm = _get(p, "project_manager_name")
     if cn:
         parts.append(f"C: {cn}")
+    if tc:
+        parts.append(f"TC: {tc}")
     if am:
         parts.append(f"AM: {am}")
     if pm:
@@ -58,9 +61,9 @@ def _assigned_to(p) -> str:
 
 # Column index constants
 COL_ID          = 0
-COL_NAME        = 1
-COL_CUSTOMER    = 2
-COL_ORDER       = 3
+COL_CUSTOMER    = 1
+COL_ORDER       = 2
+COL_NAME        = 3
 COL_START       = 4
 COL_DURATION    = 5
 COL_EXPIRY      = 6
@@ -68,11 +71,12 @@ COL_DAYS        = 7
 COL_REMAINING   = 8
 COL_STATUS      = 9
 COL_ASSIGNED    = 10
+COL_CREATED_BY  = 11
 
 COLUMNS = [
-    "ID", "Product Name", "Customer", "Order #",
+    "ID", "Customer", "Order #", "Product Name",
     "Start Date", "Duration", "Expiry Date",
-    "Days Left", "Remaining Time", "Status", "Assigned To",
+    "Days Left", "Remaining Time", "Status", "Assigned To", "Created By",
 ]
 
 
@@ -89,9 +93,9 @@ class ProductTable(QTableWidget):
         self.setColumnHidden(COL_ID, True)   # ID hidden -- used only for lookups
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header = self.horizontalHeader()
-        header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(COL_REMAINING, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(COL_ASSIGNED, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setMinimumSectionSize(60)
+        header.setStretchLastSection(False)
         self.setSortingEnabled(True)
         self._all_products: list = []
         self._filter_text: str = ""
@@ -143,9 +147,9 @@ class ProductTable(QTableWidget):
 
             values = [
                 str(_get(p, "id")),
-                str(_get(p, "product_name") or _get(p, "name")),
                 str(_get(p, "customer_name")),
                 str(_get(p, "order_number")),
+                str(_get(p, "product_name") or _get(p, "name")),
                 _fmt_date(_get(p, "start_date")),
                 f"{_get(p, 'duration_days')} days",
                 _fmt_date(_get(p, "expiry_date")),
@@ -153,10 +157,12 @@ class ProductTable(QTableWidget):
                 countdown,
                 status,
                 _assigned_to(p),
+                str(_get(p, "created_by_name") or "—"),
             ]
 
             for col, val in enumerate(values):
                 item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setBackground(QColor(color))
                 if is_expired:
                     font = QFont()
@@ -164,6 +170,7 @@ class ProductTable(QTableWidget):
                     item.setFont(font)
                 self.setItem(row, col, item)
 
+        self.resizeColumnsToContents()
         self.setSortingEnabled(True)
 
     def get_selected_product_id(self) -> Optional[int]:

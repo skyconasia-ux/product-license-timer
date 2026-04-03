@@ -1,5 +1,7 @@
 {
   "timer_interval_seconds": 300,
   "timer_min_seconds": 300,
-  "timer_max_seconds": 432000
+  "timer_max_seconds": 432000,
+  "verification_server_port": 8765,
+  "verification_server_url": "https://verify.skyconasia.com"
 }

@@ -11,51 +11,164 @@ from services.auth_service import UserSession, login, is_default_password
 from services.db_session import get_session
 
 
-class _VerifyAccountDialog(QDialog):
-    """Token entry dialog for email verification."""
+class _ForgotPasswordDialog(QDialog):
+    """Two-step password reset: enter email → send token → enter token + new password."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Verify Account")
-        self.setFixedWidth(400)
-        layout = QVBoxLayout(self)
+        self.setWindowTitle("Forgot Password")
+        self.setFixedWidth(420)
+        self._token_from_no_smtp: str | None = None
+        self._build()
+
+    def _build(self) -> None:
+        from PyQt6.QtWidgets import QStackedWidget
+        self._stack = QStackedWidget()
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self._stack)
+        self._stack.addWidget(self._build_step1())
+        self._stack.addWidget(self._build_step2())
+
+    def _build_step1(self) -> QWidget:
+        from PyQt6.QtWidgets import QWidget
+        w = QWidget()
+        layout = QVBoxLayout(w)
         layout.setSpacing(12)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.addWidget(QLabel(
-            "Enter the verification token from your email.\n"
-            "If SMTP was not configured, ask your admin for the token."
+            "Enter your email address.\n"
+            "A password reset token will be sent if the account exists."
         ))
-        self._token = QLineEdit()
-        self._token.setPlaceholderText("Paste token here")
-        layout.addWidget(self._token)
+        self._email = QLineEdit()
+        self._email.setPlaceholderText("Email address")
+        layout.addWidget(self._email)
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
-        btns.accepted.connect(self._verify)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Send Reset Token")
+        btns.accepted.connect(self._send_token)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+        return w
 
-    def _verify(self) -> None:
-        from services.auth_service import verify_email_token
-        token = self._token.text().strip()
-        if not token:
-            QMessageBox.warning(self, "Error", "Please enter a token.")
+    def _build_step2(self) -> QWidget:
+        from PyQt6.QtWidgets import QWidget
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        self._step2_label = QLabel(
+            "Enter the reset token from your email, then set a new password."
+        )
+        self._step2_label.setWordWrap(True)
+        layout.addWidget(self._step2_label)
+        self._token = QLineEdit()
+        self._token.setPlaceholderText("Paste reset token here")
+        self._new_pw = QLineEdit()
+        self._new_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._new_pw.setPlaceholderText("New password (min 8 characters)")
+        self._confirm_pw = QLineEdit()
+        self._confirm_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._confirm_pw.setPlaceholderText("Confirm new password")
+        for w2 in [self._token, self._new_pw, self._confirm_pw]:
+            layout.addWidget(w2)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Reset Password")
+        btns.accepted.connect(self._do_reset)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+        return w
+
+    def _send_token(self) -> None:
+        from services.auth_service import create_password_reset_token
+        from services.notification_service import _send_smtp, get_smtp_config
+
+        email = self._email.text().strip()
+        if not email:
+            QMessageBox.warning(self, "Error", "Please enter your email address.")
             return
+
         session = get_session()
         try:
-            ok = verify_email_token(session, token)
+            token = create_password_reset_token(session, email)
         finally:
             session.close()
+
+        if token is not None:
+            cfg = get_smtp_config()
+            sent = False
+            if cfg.get("smtp_host") and cfg.get("smtp_user"):
+                sent = _send_smtp(
+                    subject="Password Reset — Product License Timer",
+                    body=(
+                        f"Hello,\n\n"
+                        f"A password reset was requested for your account ({email}).\n\n"
+                        f"Your reset token is:\n\n"
+                        f"    {token}\n\n"
+                        f"Enter this token in the app to reset your password.\n"
+                        f"This token expires in 20 minutes and can only be used once.\n\n"
+                        f"If you did not request this, ignore this email.\n"
+                    ),
+                    recipients=[email],
+                    cfg=cfg,
+                )
+            if not sent:
+                # SMTP not configured — pre-fill the token and inform admin
+                self._token.setText(token)
+                self._step2_label.setText(
+                    f"SMTP is not configured. Token for {email} (pre-filled below):\n"
+                    f"Expires in 20 minutes."
+                )
+                self._stack.setCurrentIndex(1)
+                return
+
+        # Generic message to avoid email enumeration
+        QMessageBox.information(
+            self, "Token Sent",
+            "If this email exists, a reset token has been sent.\n"
+            "Check your inbox and enter the token below."
+        )
+        self._stack.setCurrentIndex(1)
+
+    def _do_reset(self) -> None:
+        from services.auth_service import reset_password_with_token
+
+        token = self._token.text().strip()
+        new_pw = self._new_pw.text()
+        confirm = self._confirm_pw.text()
+
+        if not token:
+            QMessageBox.warning(self, "Error", "Please enter the reset token.")
+            return
+        if len(new_pw) < 8:
+            QMessageBox.warning(self, "Error", "Password must be at least 8 characters.")
+            return
+        if new_pw != confirm:
+            QMessageBox.warning(self, "Error", "Passwords do not match.")
+            return
+
+        session = get_session()
+        try:
+            ok = reset_password_with_token(session, token, new_pw)
+        finally:
+            session.close()
+
         if ok:
             QMessageBox.information(
-                self, "Verified",
-                "Account verified! You can now log in."
+                self, "Password Reset",
+                "Your password has been reset. You can now log in."
             )
             self.accept()
         else:
-            QMessageBox.warning(self, "Invalid Token",
-                                "Token is invalid or has expired.")
+            QMessageBox.warning(
+                self, "Reset Failed",
+                "Token is invalid or has expired. Please request a new token."
+            )
 
 
 class ChangePasswordDialog(QDialog):
@@ -167,24 +280,24 @@ class LoginDialog(QDialog):
         """)
         sign_in_btn.clicked.connect(self._attempt_login)
 
-        verify_btn = QPushButton("Verify Account")
-        verify_btn.setStyleSheet("""
+        forgot_btn = QPushButton("Forgot Password")
+        forgot_btn.setStyleSheet("""
             QPushButton {
                 background: transparent; color: #3b82f6;
                 border: none; padding: 4px;
             }
             QPushButton:hover { color: #2563eb; text-decoration: underline; }
         """)
-        verify_btn.clicked.connect(self._open_verify)
+        forgot_btn.clicked.connect(self._open_forgot_password)
 
         for w in [title, subtitle, self._email, self._password,
-                  self._error_label, sign_in_btn, verify_btn]:
+                  self._error_label, sign_in_btn, forgot_btn]:
             layout.addWidget(w)
 
         outer.addWidget(card)
 
-    def _open_verify(self) -> None:
-        _VerifyAccountDialog(self).exec()
+    def _open_forgot_password(self) -> None:
+        _ForgotPasswordDialog(self).exec()
 
     def _attempt_login(self) -> None:
         email = self._email.text().strip()

@@ -36,6 +36,9 @@ def main() -> None:
     app.setQuitOnLastWindowClosed(False)
     _apply_light_theme(app)
 
+    from services import verification_server
+    verification_server.start()
+
     from ui.login_dialog import LoginDialog
 
     while True:
